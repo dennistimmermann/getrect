@@ -23,7 +23,7 @@ var _ = {};
 
 _.shrink = function (arr, n) {
 	if (arr.length <= n) return arr;
-	var ret = Array(n),
+	var ret = new Array(n),
 	    step = (arr.length - 1) / (n - 1);
 
 	for (var i = 0; i < n; i++) {
@@ -65,15 +65,14 @@ lib.prototype._process = function (points) {
 
 		var px = _ref2[0];
 		var py = _ref2[1];
-		var _ref2$2 = _ref2[2];
-		var tail = _ref2$2 === undefined ? [] : _ref2$2;
+		var tail = _ref2[2];
 
 		var _ref32 = _slicedToArray(_ref3, 2);
 
 		var cx = _ref32[0];
 		var cy = _ref32[1];
 
-		return [cx, cy, [].concat(_toConsumableArray(tail), [Math.atan2(py - cy, px - cx)])];
+		return [cx, cy, [].concat(_toConsumableArray(tail || []), [Math.atan2(py - cy, px - cx)])];
 	})[2];
 
 	/* step 3: compute the center of mass ... */
@@ -107,7 +106,8 @@ lib.prototype._process = function (points) {
 
 	/* 			... to compute the angle between it and the starting point ... */
 	var rotation = Math.atan2(samples[0][1] - center[1], samples[0][0] - center[0]);
-	/* 			... so we can substract it from each angle to make it rotation independent */
+	/* 			... so we can substract it from each angle to make the gesture rotation independent */
+
 	var adjusted = fixed.map(function (v) {
 		return (v - rotation + Math.PI) % Math.PI - Math.PI;
 	});
@@ -179,7 +179,7 @@ lib.prototype._dtw = function (template, candidate) {
 
 		/* if we arrived at the bottom right there a no possible neighbors left and we finished */
 		/* the deviation from the template is based on the product of the accumulated cost an the length of the path */
-		if (neighbors.length == 0) return { deviation: cost * (path.length / _this.config.samples) / _this.config.samples, cost: cost, path: path };
+		if (neighbors.length === 0) return { deviation: cost * (path.length / _this.config.samples) / _this.config.samples, cost: cost, path: path };
 
 		/* step 2: calculate the cost for each potential neighbor */
 		var options = neighbors.map(function (v) {

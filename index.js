@@ -16,11 +16,11 @@ var _ = {}
  */
 
 _.shrink = function(arr, n) {
-	if(arr.length <= n) return arr
-	var ret = Array(n),
+	if (arr.length <= n) return arr
+	var ret = new Array(n),
 		step = (arr.length-1)/(n-1)
 
-	for(let i = 0; i < n; i++ ) {
+	for (let i = 0; i < n; i++ ) {
 		ret[i] = arr[i*step|0]
 	}
 
@@ -52,12 +52,12 @@ lib.prototype._process = function(points) {
 	var samples = _.shrink(points, this.config.samples)
 
 	/* step 2: compute the angle of the line between each consecutive point */
-	var fixed = samples.reduce(function([px, py, tail = []], [cx, cy], i, arr) {
-		return [cx, cy, [...tail, Math.atan2(py - cy, px - cx)]]
+	var fixed = samples.reduce( ([px, py, tail], [cx, cy], i, arr) => {
+		return [cx, cy, [...tail || [], Math.atan2(py - cy, px - cx)]]
 	})[2]
 
 	/* step 3: compute the center of mass ... */
-	var [ax, ay] = samples.reduce(function([px, py], [cx, cy], i, arr) {
+	var [ax, ay] = samples.reduce( ([px, py], [cx, cy], i, arr) => {
 		return [px+cx, py+cy]
 	})
 	var center = [ax/samples.length, ay/samples.length]
@@ -70,7 +70,8 @@ lib.prototype._process = function(points) {
 
 	/* 			... to compute the angle between it and the starting point ... */
 	var rotation = Math.atan2(samples[0][1] - center[1], samples[0][0] - center[0])
-	/* 			... so we can substract it from each angle to make it rotation independent */
+	/* 			... so we can substract it from each angle to make the gesture rotation independent */
+
 	var	adjusted = fixed.map(v => {
 		return ((v - rotation + Math.PI)%Math.PI)-Math.PI
 	})
@@ -99,7 +100,7 @@ lib.prototype.add = function(name, points, rotate = false) {
  * @param {Array} candidate
  */
 
-lib.prototype._dtw = function(template, candidate, t = 0, tl = template.length, c = 0, cl = candidate.length, cost = 0, path = [[0,0]]) {
+lib.prototype._dtw = function(template, candidate, t = 0, tl = template.length, c = 0, cl = candidate.length, cost = 0, path = [[0, 0]]) {
 
 	/* ___|_t0_|_t1_|_t2_|_t3_|_t4_|
 	 * c0 | 00 .    .    .    .
@@ -114,13 +115,13 @@ lib.prototype._dtw = function(template, candidate, t = 0, tl = template.length, 
 	 */
 
 	/* step 1: find potential neighbor cells to jump to */
-	var neighbors = [[1,1], [1,0], [0,1]].filter(function([dt, dc], i, arr) {
+	var neighbors = [[1, 1], [1, 0], [0, 1]].filter( ([dt, dc], i, arr) => {
 		return t+dt < tl && c+dc < cl
 	})
 
 	/* if we arrived at the bottom right there a no possible neighbors left and we finished */
 	/* the deviation from the template is based on the product of the accumulated cost an the length of the path */
-	if(neighbors.length == 0) return {deviation: cost*(path.length/this.config.samples)/this.config.samples, cost: cost, path: path}
+	if (neighbors.length === 0) return {deviation: cost*(path.length/this.config.samples)/this.config.samples, cost: cost, path: path}
 
 	/* step 2: calculate the cost for each potential neighbor */
 	var options = neighbors.map( v => {
@@ -128,7 +129,7 @@ lib.prototype._dtw = function(template, candidate, t = 0, tl = template.length, 
 	})
 
 	/* step 3: get the neighbor with the lowest cost */
-	var [cell, fee] = options.sort( (a,b) => a[1] - b[1])[0]
+	var [cell, fee] = options.sort( (a, b) => a[1] - b[1])[0]
 	var [dt, dc] = cell
 
 	/* repeat till we reached the bottom right cell */
@@ -143,7 +144,7 @@ lib.prototype._dtw = function(template, candidate, t = 0, tl = template.length, 
  */
 
 lib.prototype.recognize = function(points) {
-	if(points.length < 2) return []
+	if (points.length < 2) return []
 	var [fixed, adjusted] = this._process(points)
 
 	/* compare this gesture with all templates, account for rotation independency */
@@ -153,7 +154,7 @@ lib.prototype.recognize = function(points) {
 	/* sort by lowest deviation */
 	res.sort( (a, b) => a.deviation - b.deviation)
 
-	if(this.config.debug) res.forEach(e => console.log(e))
+	if (this.config.debug) res.forEach(e => console.log(e))
 	// if(lib.config.debug) [for (e of res) console.log(e)]
 
 	/* return the most suitable gesture if its derivation isn't out of bounds */
