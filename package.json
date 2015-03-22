@@ -1,0 +1,30 @@
+{
+  "name": "getrect",
+  "version": "1.0.0",
+  "description": "gesture recognizer based on dtw",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "browser": "a=$npm_package_name; browserify -r ./index:$a -s Getrect index.js -t [ babelify --experimental] -o dist/$a.browser.js",
+    "es5": "a=$npm_package_name; babel --experimental index.js -o dist/$a.es5.js",
+    "watch": "a=$npm_package_name; watchify -r ./index:$a -s Getrect index.js -t [ babelify --experimental] -o dist/$a.browser.js -dv"
+  },
+  "keywords": [
+    "gesture",
+    "recognizer",
+    "dtw",
+    "touch"
+  ],
+  "author": {
+    "name": "Dennis Timmermann",
+    "email": "timmermann.dennis@googlemail.com",
+    "url": "http://tmrmn.com"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "babel": "^4.7.16",
+    "babelify": "^5.0.4",
+    "browserify": "^9.0.3",
+    "watchify": "^2.4.0"
+  }
+}
