@@ -4,8 +4,6 @@ var _slicedToArray = function (arr, i) { if (Array.isArray(arr)) { return arr; }
 
 var _toConsumableArray = function (arr) { if (Array.isArray(arr)) { for (var i = 0, arr2 = Array(arr.length); i < arr.length; i++) arr2[i] = arr[i]; return arr2; } else { return Array.from(arr); } };
 
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
 /**
  * getrekt - gesture recognizer based on dtw
  * Copyright 2015 Dennis Timmermann <timmermann.dennis@googlemail.com> License MIT
@@ -33,6 +31,10 @@ _.shrink = function (arr, n) {
 	return ret;
 };
 
+_.distance = function (a, b) {
+	return Math.sqrt(Math.pow(a[0] - b[0], 2) + Math.pow(a[1] - b[1], 2));
+};
+
 /**
  * Constructor for our recognizer
  *
@@ -43,7 +45,7 @@ _.shrink = function (arr, n) {
 var lib = function lib() {
 	var config = arguments[0] === undefined ? {} : arguments[0];
 
-	this.config = { samples: config.samples || 32, deviation: config.deviation || 1 };
+	this.config = { samples: config.samples || 32, confidence: config.confidence || 0.7 };
 	this.gestures = [];
 };
 
@@ -59,61 +61,56 @@ lib.prototype._process = function (points) {
 	/* step 1: downsampling */
 	var samples = _.shrink(points, this.config.samples);
 
-	/* step 2: compute the angle of the line between each consecutive point */
-	var fixed = samples.reduce(function (_ref, _ref3, i, arr) {
-		var _ref2 = _slicedToArray(_ref, 3);
-
-		var px = _ref2[0];
-		var py = _ref2[1];
-		var tail = _ref2[2];
-
-		var _ref32 = _slicedToArray(_ref3, 2);
-
-		var cx = _ref32[0];
-		var cy = _ref32[1];
-
-		return [cx, cy, [].concat(_toConsumableArray(tail || []), [Math.atan2(py - cy, px - cx)])];
-	})[2];
-
-	/* step 3: compute the center of mass ... */
-
-	var _samples$reduce = samples.reduce(function (_ref, _ref3, i, arr) {
-		var _ref2 = _slicedToArray(_ref, 2);
-
-		var px = _ref2[0];
-		var py = _ref2[1];
-
-		var _ref32 = _slicedToArray(_ref3, 2);
-
-		var cx = _ref32[0];
-		var cy = _ref32[1];
-
-		return [px + cx, py + cy];
-	});
-
-	var _samples$reduce2 = _slicedToArray(_samples$reduce, 2);
-
-	var ax = _samples$reduce2[0];
-	var ay = _samples$reduce2[1];
-
-	var center = [ax / samples.length, ay / samples.length];
+	/* step 2: compute the center of mass ... */
+	// var [ax, ay] = samples.reduce( ([px, py], [cx, cy], i, arr) => {
+	// 	return [px+cx, py+cy]
+	// })
+	// var center = [ax/samples.length, ay/samples.length]
 
 	/* 			... or center of the axis aligned bounding box ... */
-	//var[up, right, down, left] = samples.reduce(function([u, r, d, l], [cx, cy], i, arr) {
-	//	return [Math.min(cy, u), Math.max(cx, r), Math.max(cy, d), Math.min(cx, l)]
-	//}, [Infinity, -Infinity, -Infinity, Infinity])
-	//var center = [(left+right)/2, (up+down)/2]
 
-	/* 			... to compute the angle between it and the starting point ... */
-	var rotation = Math.atan2(samples[0][1] - center[1], samples[0][0] - center[0]);
-	/* 			... so we can substract it from each angle to make the gesture rotation independent */
+	var _samples$reduce = samples.reduce(function (_ref, _ref3, i, arr) {
+		var _ref2 = _slicedToArray(_ref, 4);
 
-	var adjusted = fixed.map(function (v) {
-		return (v - rotation + Math.PI) % Math.PI - Math.PI;
+		var u = _ref2[0];
+		var r = _ref2[1];
+		var d = _ref2[2];
+		var l = _ref2[3];
+
+		var _ref32 = _slicedToArray(_ref3, 2);
+
+		var cx = _ref32[0];
+		var cy = _ref32[1];
+
+		return [Math.min(cy, u), Math.max(cx, r), Math.max(cy, d), Math.min(cx, l)];
+	}, [Infinity, -Infinity, -Infinity, Infinity]);
+
+	var _samples$reduce2 = _slicedToArray(_samples$reduce, 4);
+
+	var up = _samples$reduce2[0];
+	var right = _samples$reduce2[1];
+	var down = _samples$reduce2[2];
+	var left = _samples$reduce2[3];
+
+	var center = [(left + right) / 2, (up + down) / 2];
+	var start = samples[0];
+
+	/* step 3: get the diameter of the gesture so we can scale it without stretching */
+	var radius = samples.reduce(function (prev, cur, i, arr) {
+		return Math.max(prev, _.distance(center, cur));
+	}, 0);
+
+	/* step 4: compute the normalized coordinates */
+	var coordinates = samples.map(function (_ref) {
+		var _ref2 = _slicedToArray(_ref, 2);
+
+		var x = _ref2[0];
+		var y = _ref2[1];
+
+		return [(x - start[0]) / radius, (y - start[1]) / radius];
 	});
-	// var adjusted = [for (v of fixed) ((v - rotation + Math.PI)%Math.PI)-Math.PI]
 
-	return [fixed, adjusted];
+	return coordinates;
 };
 
 /**
@@ -121,20 +118,10 @@ lib.prototype._process = function (points) {
  *
  * @param {String} name the name of the gesture, this will be returned if the gesture is recognized
  * @param {Array} points
- * @param {Boolean} rotate set to true to make the gesture rotation independent
  */
 
 lib.prototype.add = function (name, points) {
-	var rotate = arguments[2] === undefined ? false : arguments[2];
-
-	var _process = this._process(points);
-
-	var _process2 = _slicedToArray(_process, 2);
-
-	var fixed = _process2[0];
-	var adjusted = _process2[1];
-
-	this.gestures.push({ name: name, rotate: rotate, template: rotate ? adjusted : fixed });
+	this.gestures.push({ name: name, template: this._process(points) });
 };
 
 /**
@@ -144,16 +131,15 @@ lib.prototype.add = function (name, points) {
  * @param {Array} candidate
  */
 
-lib.prototype._dtw = function (template, candidate) {
+lib.prototype._rcdtw = function (template, candidate, _x, _x2, cache) {
 	var _this = this;
 
-	var t = arguments[2] === undefined ? 0 : arguments[2];
-	var tl = arguments[3] === undefined ? template.length : arguments[3];
-	var c = arguments[4] === undefined ? 0 : arguments[4];
-	var cl = arguments[5] === undefined ? candidate.length : arguments[5];
-	var cost = arguments[6] === undefined ? 0 : arguments[6];
-	var path = arguments[7] === undefined ? [[0, 0]] : arguments[7];
+	var i = arguments[2] === undefined ? template.length - 1 : arguments[2];
+	var j = arguments[3] === undefined ? candidate.length - 1 : arguments[3];
 	return (function () {
+		cache = cache || template.map(function () {
+			return new Array(candidate.length);
+		});
 
 		/* ___|_t0_|_t1_|_t2_|_t3_|_t4_|
    * c0 | 00 .    .    .    .
@@ -163,45 +149,44 @@ lib.prototype._dtw = function (template, candidate) {
    * c4 |    .    .    .    . 44
    *
    * the idea is to find the cheapest path through a mn-Matrix based on the values of the template and candidate
-   * the cost of each cell ist the difference between the corresponding values of template and candidate
+   * the cost of each cell ist the difference between the corresponding values of template and candidate plus the cost of its cheapest former neighbor
    * a perfect match would accumulate no cost and its path would be the shortes path possible, diagonal through the matrix
    */
 
-		/* step 1: find potential neighbor cells to jump to */
-		var neighbors = [[1, 1], [1, 0], [0, 1]].filter(function (_ref, i, arr) {
+		/* check if neighbors are within bounds */
+		var coords = [[i, j - 1], [i - 1, j], [i - 1, j - 1]].filter(function (_ref) {
 			var _ref2 = _slicedToArray(_ref, 2);
 
-			var dt = _ref2[0];
-			var dc = _ref2[1];
+			var ii = _ref2[0];
+			var ij = _ref2[1];
 
-			return t + dt < tl && c + dc < cl;
+			return ii >= 0 && ij >= 0;
 		});
 
-		/* if we arrived at the bottom right there a no possible neighbors left and we finished */
-		/* the deviation from the template is based on the product of the accumulated cost an the length of the path */
-		if (neighbors.length === 0) return { deviation: cost * (path.length / _this.config.samples) / _this.config.samples, cost: cost, path: path };
+		/* get the cost of each neighbor */
+		var neighbors = coords.map(function (_ref, i, arr) {
+			var _ref2 = _slicedToArray(_ref, 2);
 
-		/* step 2: calculate the cost for each potential neighbor */
-		var options = neighbors.map(function (v) {
-			return [v, Math.abs(template[t + v[0]] - candidate[c + v[1]]) % Math.PI];
+			var ii = _ref2[0];
+			var ij = _ref2[1];
+
+			/* recursively get the cost of each cell and cache is */
+			return cache[ii][ij] || _this._rcdtw(template, candidate, ii, ij, cache);
 		});
 
-		/* step 3: get the neighbor with the lowest cost */
+		/* get the cheapest. If the are no neighbors, its the [0, 0] cell */
 
-		var _options$sort$0 = _slicedToArray(options.sort(function (a, b) {
-			return a[1] - b[1];
-		})[0], 2);
+		var _ref = neighbors.sort(function (a, b) {
+			return a[0] - b[0];
+		})[0] || [0, [[0, 0]]];
 
-		var cell = _options$sort$0[0];
-		var fee = _options$sort$0[1];
+		var _ref2 = _slicedToArray(_ref, 2);
 
-		var _cell = _slicedToArray(cell, 2);
+		var fee = _ref2[0];
+		var cell = _ref2[1];
 
-		var dt = _cell[0];
-		var dc = _cell[1];
-
-		/* repeat till we reached the bottom right cell */
-		return _this._dtw(template, candidate, t + dt, tl, c + dc, cl, cost + fee, [].concat(_toConsumableArray(path), [cell]));
+		/* return the full cost and the path until this point */
+		return cache[i][j] = [_.distance(template[i], candidate[j]) + fee, [].concat(_toConsumableArray(cell), [[i, j]])];
 	})();
 };
 
@@ -212,44 +197,40 @@ lib.prototype._dtw = function (template, candidate) {
  * @return {String} name of the recognized gesture, if any
  */
 
-lib.prototype.recognize = function (points) {
+lib.prototype.recognize = function (points, callback) {
 	var _this = this;
 
 	if (points.length < 2) return [];
-
-	var _process = this._process(points);
-
-	var _process2 = _slicedToArray(_process, 2);
-
-	var fixed = _process2[0];
-	var adjusted = _process2[1];
+	var candidate = this._process(points);
 
 	/* compare this gesture with all templates, account for rotation independency */
 	var res = this.gestures /*.filter(v => v.name == "circle")*/.map(function (_ref) {
 		var name = _ref.name;
-		var rotate = _ref.rotate;
 		var template = _ref.template;
-		return _extends({ name: name }, _this._dtw(template, rotate ? adjusted : fixed));
-	});
-	// var res = [for({name, rotate, template} of this.gestures) {name, ...this._dtw(template, rotate?adjusted:fixed)}]
 
-	/* sort by lowest deviation */
-	res.sort(function (a, b) {
-		return a.deviation - b.deviation;
+		var _rcdtw = _this._rcdtw(template, candidate);
+
+		var _rcdtw2 = _slicedToArray(_rcdtw, 2);
+
+		var cost = _rcdtw2[0];
+		var path = _rcdtw2[1];
+
+		var confidence = Math.pow(1 + cost, -0.1 * (path.length / _this.config.samples));
+		return { name: name, cost: cost, confidence: confidence };
+	}).filter(function (e) {
+		return _this.config.debug || e.confidence > _this.config.confidence;
 	});
 
 	if (this.config.debug) res.forEach(function (e) {
 		return console.log(e);
 	});
-	// if(lib.config.debug) [for (e of res) console.log(e)]
 
-	/* return the most suitable gesture if its derivation isn't out of bounds */
-	return res.filter(function (e) {
-		return _this.config.debug || e.deviation < _this.config.deviation;
-	})[0]
-	// return [for(r of res) if(r.deviation < lib.config.deviation) r][0]
+	/* sort by lowest deviation */
+	var gesture = res.sort(function (a, b) {
+		return b.confidence - a.confidence;
+	})[0];
 
-	;
+	if (gesture) callback(null, gesture);else callback(new Error("no gesture recognized"));
 };
 
 module.exports = lib;

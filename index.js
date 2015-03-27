@@ -27,6 +27,10 @@ _.shrink = function(arr, n) {
 	return ret
 }
 
+_.distance = function(a, b) {
+	return Math.sqrt( (a[0] - b[0])**2 + (a[1] - b[1])**2)
+}
+
 /**
  * Constructor for our recognizer
  *
@@ -35,7 +39,7 @@ _.shrink = function(arr, n) {
  */
 
 var lib = function(config = {}) {
-	this.config = { samples: config.samples || 32, deviation: config.deviation || 1 }
+	this.config = { samples: config.samples || 32, confidence: config.confidence || 0.70 }
 	this.gestures = []
 };
 
@@ -51,33 +55,31 @@ lib.prototype._process = function(points) {
 	/* step 1: downsampling */
 	var samples = _.shrink(points, this.config.samples)
 
-	/* step 2: compute the angle of the line between each consecutive point */
-	var fixed = samples.reduce( ([px, py, tail], [cx, cy], i, arr) => {
-		return [cx, cy, [...tail || [], Math.atan2(py - cy, px - cx)]]
-	})[2]
-
-	/* step 3: compute the center of mass ... */
-	var [ax, ay] = samples.reduce( ([px, py], [cx, cy], i, arr) => {
-		return [px+cx, py+cy]
-	})
-	var center = [ax/samples.length, ay/samples.length]
+	/* step 2: compute the center of mass ... */
+	// var [ax, ay] = samples.reduce( ([px, py], [cx, cy], i, arr) => {
+	// 	return [px+cx, py+cy]
+	// })
+	// var center = [ax/samples.length, ay/samples.length]
 
 	/* 			... or center of the axis aligned bounding box ... */
-	//var[up, right, down, left] = samples.reduce(function([u, r, d, l], [cx, cy], i, arr) {
-	//	return [Math.min(cy, u), Math.max(cx, r), Math.max(cy, d), Math.min(cx, l)]
-	//}, [Infinity, -Infinity, -Infinity, Infinity])
-	//var center = [(left+right)/2, (up+down)/2]
+	var[up, right, down, left] = samples.reduce( ([u, r, d, l], [cx, cy], i, arr) => {
+		return [Math.min(cy, u), Math.max(cx, r), Math.max(cy, d), Math.min(cx, l)]
+	}, [Infinity, -Infinity, -Infinity, Infinity])
 
-	/* 			... to compute the angle between it and the starting point ... */
-	var rotation = Math.atan2(samples[0][1] - center[1], samples[0][0] - center[0])
-	/* 			... so we can substract it from each angle to make the gesture rotation independent */
+	var center = [(left+right)/2, (up+down)/2]
+	var start = samples[0]
 
-	var	adjusted = fixed.map(v => {
-		return ((v - rotation + Math.PI)%Math.PI)-Math.PI
+	/* step 3: get the diameter of the gesture so we can scale it without stretching */
+	var radius = samples.reduce( (prev, cur, i, arr) => {
+		return Math.max(prev, _.distance(center, cur))
+	}, 0)
+
+	/* step 4: compute the normalized coordinates */
+	var coordinates = samples.map( ([x, y]) => {
+		return [(x-start[0])/radius, (y-start[1])/radius]
 	})
-	// var adjusted = [for (v of fixed) ((v - rotation + Math.PI)%Math.PI)-Math.PI]
 
-	return [fixed, adjusted]
+	return coordinates
 }
 
 /**
@@ -85,12 +87,10 @@ lib.prototype._process = function(points) {
  *
  * @param {String} name the name of the gesture, this will be returned if the gesture is recognized
  * @param {Array} points
- * @param {Boolean} rotate set to true to make the gesture rotation independent
  */
 
-lib.prototype.add = function(name, points, rotate = false) {
-	var [fixed, adjusted] = this._process(points)
-	this.gestures.push({name: name, rotate: rotate, template: rotate?adjusted:fixed})
+lib.prototype.add = function(name, points) {
+	this.gestures.push({name: name, template: this._process(points)})
 }
 
 /**
@@ -100,7 +100,8 @@ lib.prototype.add = function(name, points, rotate = false) {
  * @param {Array} candidate
  */
 
-lib.prototype._dtw = function(template, candidate, t = 0, tl = template.length, c = 0, cl = candidate.length, cost = 0, path = [[0, 0]]) {
+lib.prototype._rcdtw = function(template, candidate, i = template.length-1, j = candidate.length-1, cache) {
+	cache = cache || template.map(()=> new Array(candidate.length))
 
 	/* ___|_t0_|_t1_|_t2_|_t3_|_t4_|
 	 * c0 | 00 .    .    .    .
@@ -110,30 +111,26 @@ lib.prototype._dtw = function(template, candidate, t = 0, tl = template.length, 
 	 * c4 |    .    .    .    . 44
 	 *
 	 * the idea is to find the cheapest path through a mn-Matrix based on the values of the template and candidate
-	 * the cost of each cell ist the difference between the corresponding values of template and candidate
+	 * the cost of each cell ist the difference between the corresponding values of template and candidate plus the cost of its cheapest former neighbor
 	 * a perfect match would accumulate no cost and its path would be the shortes path possible, diagonal through the matrix
 	 */
 
-	/* step 1: find potential neighbor cells to jump to */
-	var neighbors = [[1, 1], [1, 0], [0, 1]].filter( ([dt, dc], i, arr) => {
-		return t+dt < tl && c+dc < cl
+	/* check if neighbors are within bounds */
+	var coords = [[i, j-1], [i-1, j], [i-1, j-1]].filter( ([ii, ij]) => {
+		return ii >= 0 && ij >= 0
 	})
 
-	/* if we arrived at the bottom right there a no possible neighbors left and we finished */
-	/* the deviation from the template is based on the product of the accumulated cost an the length of the path */
-	if (neighbors.length === 0) return {deviation: cost*(path.length/this.config.samples)/this.config.samples, cost: cost, path: path}
-
-	/* step 2: calculate the cost for each potential neighbor */
-	var options = neighbors.map( v => {
-		return [v, (Math.abs(template[t+v[0]] - candidate[c+v[1]])%Math.PI)]
+	/* get the cost of each neighbor */
+	var neighbors = coords.map( ([ii, ij], i, arr) => {
+		/* recursively get the cost of each cell and cache is */
+		return cache[ii][ij] || this._rcdtw(template, candidate, ii, ij, cache)
 	})
 
-	/* step 3: get the neighbor with the lowest cost */
-	var [cell, fee] = options.sort( (a, b) => a[1] - b[1])[0]
-	var [dt, dc] = cell
+	/* get the cheapest. If the are no neighbors, its the [0, 0] cell */
+	var [fee, cell] = neighbors.sort( (a, b) => a[0] - b[0])[0] || [0, [[0, 0]]]
 
-	/* repeat till we reached the bottom right cell */
-	return this._dtw(template, candidate, t+dt, tl, c+dc, cl, cost+fee, [...path, cell])
+	/* return the full cost and the path until this point */
+	return cache[i][j] = [_.distance(template[i], candidate[j]) + fee, [...cell, [i, j]]]
 }
 
 /**
@@ -143,24 +140,24 @@ lib.prototype._dtw = function(template, candidate, t = 0, tl = template.length, 
  * @return {String} name of the recognized gesture, if any
  */
 
-lib.prototype.recognize = function(points) {
+lib.prototype.recognize = function(points, callback) {
 	if (points.length < 2) return []
-	var [fixed, adjusted] = this._process(points)
+	var candidate = this._process(points)
 
 	/* compare this gesture with all templates, account for rotation independency */
-	var res = this.gestures/*.filter(v => v.name == "circle")*/.map( ({name, rotate, template}) => { return {name, ...this._dtw(template, rotate?adjusted:fixed)}} )
-	// var res = [for({name, rotate, template} of this.gestures) {name, ...this._dtw(template, rotate?adjusted:fixed)}]
-
-	/* sort by lowest deviation */
-	res.sort( (a, b) => a.deviation - b.deviation)
+	var res = this.gestures/*.filter(v => v.name == "circle")*/.map( ({name, template}) => {
+		var [cost, path] = this._rcdtw(template, candidate)
+		var confidence = Math.pow(1+cost, -0.1 * (path.length/this.config.samples))
+		return {name, cost: cost, confidence: confidence}
+	}).filter( e => this.config.debug || e.confidence > this.config.confidence)
 
 	if (this.config.debug) res.forEach(e => console.log(e))
-	// if(lib.config.debug) [for (e of res) console.log(e)]
 
-	/* return the most suitable gesture if its derivation isn't out of bounds */
-	return res.filter( e => this.config.debug || e.deviation < this.config.deviation)[0]
-	// return [for(r of res) if(r.deviation < lib.config.deviation) r][0]
+	/* sort by lowest deviation */
+	var gesture = res.sort( (a, b) => b.confidence - a.confidence)[0]
 
+	if (gesture) callback(null, gesture)
+	else callback(new Error("no gesture recognized"))
 }
 
 module.exports = lib

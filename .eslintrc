@@ -10,6 +10,7 @@
 		"wrap-iife": [1, "outside"],
 		"yoda": [1, "never"],
 		"no-unused-vars": [1, {"vars": "local", "args": "none"}],
+		"no-return-assign": 0,
 
 
 		"indent": [1, "tab"],
